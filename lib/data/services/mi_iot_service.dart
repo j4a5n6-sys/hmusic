@@ -791,8 +791,14 @@ class MiIoTService {
 
       final devices = <MiDevice>[];
       for (var deviceData in deviceList) {
+        // 🔧 IP 字段解析：
+        // /admin/v2/device_list (Mina/小爱业务) 实际返回的 LAN IP 字段是 `address`，
+        // 而 /home/device_list (米家/MiIO) 使用 `localip`。
+        // 此处兼容两套接口，避免 IP 解析失败导致本地代理判定失误。
+        // 参考：https://github.com/Yonsm/MiService 的 minaservice.py
         final ip =
-            deviceData['localip'] as String? ??
+            deviceData['address'] as String? ?? // ✅ Mina API 实际字段
+            deviceData['localip'] as String? ?? // MiIO/米家字段（兼容）
             deviceData['localIp'] as String? ??
             deviceData['ip'] as String?;
         final device = MiDevice(
@@ -813,6 +819,12 @@ class MiIoTService {
                   ? ' - ${device.ip}'
                   : '';
           print('  📱 ${device.name} (${device.hardware})$ipSuffix');
+          // 🔧 IP 解析失败时，输出原始字段方便定位字段名变更
+          if (device.ip == null || device.ip!.isEmpty) {
+            print(
+              '⚠️ [MiIoT] 设备 IP 解析失败，原始字段keys=${(deviceData as Map).keys.toList()}',
+            );
+          }
         }
       }
 
@@ -937,42 +949,40 @@ class MiIoTService {
     }
 
     // 方案1：尝试使用本地代理（仅在 WiFi 环境下）
+    // 🔒 严格判定：只有明确确认手机与音箱处于同网段时，才使用本地代理。
+    // 当任何一方 IP 未知时，无法保证音箱能回连手机的局域网地址（实测会出现
+    // ubus 命令成功下发但音箱播报“当前歌单没有音乐”的现象），
+    // 因此一律跳过本地代理，让流程落到方案2（公共代理）。
     if (!forceDirectForKnownCdn &&
         isWiFi &&
         _proxyServer != null &&
         _proxyServer!.isRunning) {
-      if (deviceIp != null && localIp != null && !sameSubnet) {
-        print('⚠️ [MiIoT] 设备IP与手机IP不同网段，跳过本地代理');
-        print('   设备IP: $deviceIp');
-        print('   手机IP: $localIp');
-      } else if (deviceIp == null || localIp == null) {
-        print('⚠️ [MiIoT] 无法获取设备或手机IP，仍使用本地代理');
-      } else {
-        print('✅ [MiIoT] 设备IP与手机IP同网段，允许本地代理');
-        print('   设备IP: $deviceIp');
-        print('   手机IP: $localIp');
-      }
-
-      final originalUrl = playUrl;
-      try {
-        // 🎯 直连模式优先通过本地代理推送 URL（base64 包裹），
-        // 避免音箱直连音乐 CDN 被限制造成 403。
-        // 注意：这里不再请求外部站点做探测，避免误判与额外外网依赖。
-        if (deviceIp == null || localIp == null || sameSubnet) {
+      if (deviceIp != null && localIp != null && sameSubnet) {
+        final originalUrl = playUrl;
+        try {
           playUrl = _proxyServer!.getProxyUrl(playUrl);
           useProxy = true;
-          print('✅ [MiIoT] 使用本地代理转发（URL已base64封装）');
+          print('✅ [MiIoT] 设备IP与手机IP同网段，使用本地代理转发（URL已base64封装）');
+          print('   设备IP: $deviceIp');
+          print('   手机IP: $localIp');
           print(
             '   原始URL: ${originalUrl.substring(0, originalUrl.length > 80 ? 80 : originalUrl.length)}...',
           );
           print(
             '   代理URL: ${playUrl.substring(0, playUrl.length > 80 ? 80 : playUrl.length)}...',
           );
-        } else {
-          print('⚠️ [MiIoT] 已确认不同网段，跳过本地代理');
+        } catch (e) {
+          print('⚠️ [MiIoT] 本地代理封装失败，跳过使用: $e');
         }
-      } catch (e) {
-        print('⚠️ [MiIoT] 本地代理封装失败，跳过使用: $e');
+      } else if (deviceIp != null && localIp != null && !sameSubnet) {
+        print('⚠️ [MiIoT] 设备IP与手机IP不同网段，跳过本地代理（将尝试公共代理）');
+        print('   设备IP: $deviceIp');
+        print('   手机IP: $localIp');
+      } else {
+        // 设备 IP 或本机 IP 任一未知：无法保证音箱可达手机，必须跳过本地代理
+        print('⚠️ [MiIoT] 设备/本机 IP 未知，跳过本地代理（将尝试公共代理）');
+        print('   设备IP: ${deviceIp ?? "未知"}');
+        print('   手机IP: ${localIp ?? "未知"}');
       }
     } else if (!isWiFi && _proxyServer != null && _proxyServer!.isRunning) {
       print('📱 [MiIoT] 移动网络环境，跳过本地代理（设备通常不可回连手机）');

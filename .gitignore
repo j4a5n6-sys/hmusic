@@ -12,6 +12,18 @@
 .swiftpm/
 migrate_working_dir/
 
+# 应用运行日志（含手机IP/Cookie/设备ID等敏感信息）
+hmusic_logs_*.txt
+hmusic_logs_*.json
+
+# 签名密钥相关 - 严禁提交
+android/key.properties
+android/app/release.keystore
+android/app/*.jks
+*.jks
+*.keystore
+key.properties
+
 # 混淆构建相关 - 安全敏感
 build/debug-info/
 *.symbols
