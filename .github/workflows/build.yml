@@ -20,7 +20,9 @@ on:
       - 'v*'
 
 env:
-  FLUTTER_VERSION: '3.27.4'
+  # Dart SDK 约束 >=3.7.2，需要 Flutter ≥ 3.29
+  # 3.41.9 由 pub 解析器推荐（pubspec.lock 中部分依赖要求）
+  FLUTTER_VERSION: '3.41.9'
   JAVA_VERSION: '17'
 
 jobs:
