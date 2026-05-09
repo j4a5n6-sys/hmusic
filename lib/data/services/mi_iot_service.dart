@@ -106,21 +106,44 @@ class MiIoTService {
 
   /// 🎯 设置公共音频代理URL（Cloudflare Workers）
   /// 格式: https://your-worker.workers.dev
+  ///
+  /// 🔧 强健性处理：
+  /// - 自动 trim 首尾空白（处理用户复制时夹带的空格）
+  /// - 自动补 https:// 前缀（处理只填裸域名的情况，如 "hmusic.hcur.asia"）
+  /// - 拒绝非法协议（如 ftp://），统一规范化为 https://
+  /// - 移除末尾斜杠
+  /// - 输入为 null/空 时清除代理
   void setPublicProxyUrl(String? proxyUrl) {
-    _publicProxyUrl = proxyUrl?.trim();
-    if (_publicProxyUrl != null && _publicProxyUrl!.isNotEmpty) {
-      // 移除末尾斜杠
-      if (_publicProxyUrl!.endsWith('/')) {
-        _publicProxyUrl = _publicProxyUrl!.substring(
-          0,
-          _publicProxyUrl!.length - 1,
-        );
-      }
-      print('✅ [MiIoT] 已设置公共代理: $_publicProxyUrl');
-    } else {
+    final raw = proxyUrl?.trim();
+    if (raw == null || raw.isEmpty) {
       _publicProxyUrl = null;
       print('⚠️ [MiIoT] 公共代理已清除');
+      return;
     }
+
+    // 规范化协议头：缺失则补 https://
+    String normalized = raw;
+    final lower = normalized.toLowerCase();
+    if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+      print('🔧 [MiIoT] 公共代理 URL 缺协议头，自动补 https:// (原值=$raw)');
+      normalized = 'https://$normalized';
+    }
+
+    // 移除末尾斜杠
+    if (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+
+    // 校验为合法 URL
+    final uri = Uri.tryParse(normalized);
+    if (uri == null || !uri.hasAuthority) {
+      print('❌ [MiIoT] 公共代理 URL 非法，已忽略：$raw');
+      _publicProxyUrl = null;
+      return;
+    }
+
+    _publicProxyUrl = normalized;
+    print('✅ [MiIoT] 已设置公共代理: $_publicProxyUrl');
   }
 
   /// 🎯 获取公共代理URL（供外部读取）
